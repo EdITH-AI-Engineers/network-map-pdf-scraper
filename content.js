@@ -6,6 +6,14 @@
 
 let currentEntries = [];
 
+function getCourseCode() {
+  // URL looks like:
+  //   https://paraverse.feutech.edu.ph/network-map/course/CCS0003&curriculum=...
+  // The course code is the segment after "/course/" and before "&curriculum".
+  const match = window.location.href.match(/\/course\/([^&]+)&curriculum=/);
+  return match ? match[1] : null;
+}
+
 function findPdfEntries() {
   const seen = new Set();
   const entries = [];
@@ -173,14 +181,23 @@ function onDownloadClick() {
     return;
   }
 
+  const courseCode = getCourseCode();
+  if (!courseCode) {
+    statusEl.textContent =
+      "Couldn't find a course code in the page URL -- expected .../course/<CODE>&curriculum=...";
+    return;
+  }
+
   const downloads = checked.map((entry, i) => ({
     url: new URL(entry.path, window.location.origin).href,
     filename: makeFilename(entry, i),
   }));
 
-  statusEl.textContent = `Sending ${downloads.length} file(s) for processing...`;
+  statusEl.textContent = `Sending ${downloads.length} file(s) for processing (course ${courseCode})...`;
 
-  chrome.runtime.sendMessage({ type: "downloadPdfs", downloads }, (response) => {
+  chrome.runtime.sendMessage(
+    { type: "downloadPdfs", downloads, courseCode },
+    (response) => {
     if (chrome.runtime.lastError) {
       statusEl.textContent = `Error: ${chrome.runtime.lastError.message}`;
       return;
@@ -191,7 +208,8 @@ function onDownloadClick() {
       msg += ` First error -- ${firstError.pdf}: ${firstError.error}`;
     }
     statusEl.textContent = msg;
-  });
+    }
+  );
 }
 
 // ---------------------------------------------------------------------------

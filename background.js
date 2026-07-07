@@ -3,8 +3,8 @@
 // session for paraverse.feutech.edu.ph (no cookie handling needed since
 // the extension has host permission for that origin), then sends all of
 // them in a single multipart POST to the local FastAPI server's
-// /process endpoint, which runs the slide-extraction pipeline and
-// returns per-file results.
+// /process/<courseCode> endpoint, which runs the slide-extraction
+// pipeline and returns per-file results.
 
 const DEFAULT_PORT = 8000;
 
@@ -29,7 +29,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   (async () => {
     const baseUrl = await getBaseUrl();
-    const processUrl = `${baseUrl}/process`;
+    const courseCode = message.courseCode;
+    if (!courseCode) {
+      sendResponse({
+        succeeded: 0,
+        failed: 1,
+        errors: [{ pdf: "(batch)", error: "Missing course code" }],
+        processUrl: null,
+      });
+      return;
+    }
+    const processUrl = `${baseUrl}/process/${encodeURIComponent(courseCode)}`;
 
     const form = new FormData();
     const fetchErrors = [];

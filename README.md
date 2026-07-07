@@ -11,10 +11,12 @@ from the background service worker. Since the extension has host permission
 for `paraverse.feutech.edu.ph` and you're already logged in there in that
 browser, the fetch automatically carries your session cookie -- no cookie
 handling, no separate login step. It then sends all the fetched PDFs in a
-single multipart POST to your FastAPI server's `/process` endpoint
-(`http://localhost:<port>/process`), which runs the slide-extraction
-pipeline and returns per-file results -- instead of saving them through
-`chrome.downloads`.
+single multipart POST to your FastAPI server's `/process/<courseCode>`
+endpoint (`http://localhost:<port>/process/<courseCode>`), where
+`<courseCode>` (e.g. `CCS0003`) is parsed straight out of the current page
+URL (the segment between `/course/` and `&curriculum=`). The server runs
+the slide-extraction pipeline and returns per-file results -- instead of
+saving anything through `chrome.downloads`.
 
 ## Run the local server first
 Use your `slides_pdf_to_txt`-based FastAPI app (the one exposing `/`,
@@ -52,10 +54,11 @@ and doesn't touch `/process-existing` or the input folder.
 6. Everything is checked by default. Uncheck anything you don't want, or
    use **Select All / None**.
 7. Click **Process Selected**. All checked PDFs are POSTed in one request
-   to your FastAPI server's `/process` endpoint
-   (`http://localhost:<port>/process`), which runs OCR/formatting on each
-   and returns the resulting `.txt` files (viewable via the server's own
-   `/download/{filename}` route, or `/outputs` for the full list).
+   to your FastAPI server's `/process/<courseCode>` endpoint
+   (`http://localhost:<port>/process/<courseCode>`, where `<courseCode>`
+   is pulled from the current page URL), which runs OCR/formatting on
+   each and returns the resulting `.txt` files (viewable via the server's
+   own `/download/{filename}` route, or `/outputs` for the full list).
 
 The panel re-scans automatically if you expand more modules while it's open,
 so the list stays current. Close it with the × in the corner any time.
