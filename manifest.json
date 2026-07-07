@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Paraverse Module PDF Fetcher",
+  "version": "1.0",
+  "description": "Adds a button on Paraverse course pages to fetch every module presentation PDF in one click, using your existing logged-in session, and sends them to a local FastAPI server for processing.",
+  "permissions": ["scripting", "storage"],
+  "host_permissions": [
+    "https://paraverse.feutech.edu.ph/*",
+    "http://localhost:*/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://paraverse.feutech.edu.ph/network-map/course/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
