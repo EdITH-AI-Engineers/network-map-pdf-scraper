@@ -1,69 +1,86 @@
 // background.js
 // Fetches each PDF using the browser's normal, already-authenticated
 // session for paraverse.feutech.edu.ph (no cookie handling needed since
-// the extension has host permission for that origin), then forwards the
-// raw bytes to a local FastAPI server for processing -- instead of
-// saving them through chrome.downloads.
+// the extension has host permission for that origin), then sends all of
+// them in a single multipart POST to the local FastAPI server's
+// /process endpoint, which runs the slide-extraction pipeline and
+// returns per-file results.
 
 const DEFAULT_PORT = 8000;
 
-async function getUploadEndpoint() {
+async function getBaseUrl() {
   const { uploadPort } = await chrome.storage.local.get("uploadPort");
   const port = uploadPort || DEFAULT_PORT;
-  return `http://localhost:${port}/upload`;
+  return `http://localhost:${port}`;
 }
 
-async function fetchAndUpload(url, filename, uploadEndpoint) {
+async function fetchPdfBlob(url) {
   // credentials: "include" so the paraverse session cookie is sent, same
   // as a normal logged-in page load would.
   const pdfResponse = await fetch(url, { credentials: "include" });
   if (!pdfResponse.ok) {
     throw new Error(`Fetch failed (${pdfResponse.status}) for ${url}`);
   }
-  const blob = await pdfResponse.blob();
-
-  const form = new FormData();
-  // Keep just the leaf filename (drop the "paraverse-modules/" prefix --
-  // that was only meaningful for chrome.downloads' folder structure).
-  const leafName = filename.split("/").pop();
-  form.append("file", blob, leafName);
-  form.append("filename", leafName);
-  form.append("source_url", url);
-
-  const uploadResponse = await fetch(uploadEndpoint, {
-    method: "POST",
-    body: form,
-  });
-
-  if (!uploadResponse.ok) {
-    throw new Error(
-      `Upload failed (${uploadResponse.status}) for ${leafName}`
-    );
-  }
+  return pdfResponse.blob();
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type !== "downloadPdfs") return;
 
   (async () => {
-    const uploadEndpoint = await getUploadEndpoint();
-    let succeeded = 0;
-    let failed = 0;
+    const baseUrl = await getBaseUrl();
+    const processUrl = `${baseUrl}/process`;
 
+    const form = new FormData();
+    const fetchErrors = [];
+
+    // Fetch every selected PDF first and add each as a "files" field --
+    // the server's /process endpoint accepts multiple files in one
+    // request (files: list[UploadFile]) and processes them as a batch.
     for (const { url, filename } of message.downloads) {
+      // Keep just the leaf filename (drop the "paraverse-modules/" prefix
+      // -- that was only meaningful for chrome.downloads' folder
+      // structure; the server just wants a plain "Name.pdf").
+      const leafName = filename.split("/").pop();
       try {
-        await fetchAndUpload(url, filename, uploadEndpoint);
-        succeeded++;
+        const blob = await fetchPdfBlob(url);
+        form.append("files", blob, leafName);
       } catch (e) {
-        console.error("Upload failed:", url, e);
-        failed++;
+        console.error("Fetch failed:", url, e);
+        fetchErrors.push({ pdf: leafName, error: String(e) });
       }
-      // Small stagger so the local server (and Paraverse) aren't hit with
-      // dozens of simultaneous requests at once.
-      await new Promise((r) => setTimeout(r, 300));
     }
 
-    sendResponse({ succeeded, failed, uploadEndpoint });
+    let outputs = [];
+    let errors = [...fetchErrors];
+
+    // Only hit the server if at least one file was successfully fetched.
+    const hasFiles = Array.from(form.keys()).includes("files");
+    if (hasFiles) {
+      try {
+        const response = await fetch(processUrl, {
+          method: "POST",
+          body: form,
+        });
+        if (!response.ok) {
+          const detail = await response.text().catch(() => "");
+          throw new Error(`Server error ${response.status}: ${detail}`);
+        }
+        const result = await response.json();
+        outputs = result.outputs || [];
+        errors = errors.concat(result.errors || []);
+      } catch (e) {
+        console.error("Processing request failed:", e);
+        errors.push({ pdf: "(batch)", error: String(e) });
+      }
+    }
+
+    sendResponse({
+      succeeded: outputs.length,
+      failed: errors.length,
+      errors,
+      processUrl,
+    });
   })();
 
   return true; // keep the message channel open for the async response

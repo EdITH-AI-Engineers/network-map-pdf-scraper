@@ -3,24 +3,29 @@
 Adds a "Download All Module PDFs" button to your Paraverse course page.
 Click it and every presentation PDF for that course downloads at once,
 using your browser's own logged-in session -- no cookies to copy, no
-separate login step. 
+separate login step.
 
 ## Why this approach works without a cookie
 The extension fetches each PDF using `fetch(url, { credentials: "include" })`
 from the background service worker. Since the extension has host permission
 for `paraverse.feutech.edu.ph` and you're already logged in there in that
 browser, the fetch automatically carries your session cookie -- no cookie
-handling, no separate login step. It then forwards the raw PDF bytes to a
-local FastAPI server running on your machine (`http://localhost:8000/upload`)
-instead of saving them through `chrome.downloads`.
+handling, no separate login step. It then sends all the fetched PDFs in a
+single multipart POST to your FastAPI server's `/process` endpoint
+(`http://localhost:<port>/process`), which runs the slide-extraction
+pipeline and returns per-file results -- instead of saving them through
+`chrome.downloads`.
 
 ## Run the local server first
+Use your `slides_pdf_to_txt`-based FastAPI app (the one exposing `/`,
+`/process`, `/process-existing`, `/outputs`, `/download/{filename}`).
+Start it with:
 ```
-pip install fastapi uvicorn python-multipart
-uvicorn server:app --port 8000
+uvicorn app:app --port 8000
 ```
-This starts a receiver at `http://localhost:8000` that saves incoming PDFs
-into `./modules`. Leave it running while you use the extension.
+(swap `app` for whatever the module is actually named). Leave it running
+while you use the extension -- the extension POSTs directly to `/process`
+and doesn't touch `/process-existing` or the input folder.
 
 ## Install (unpacked, for personal use)
 
@@ -46,17 +51,19 @@ into `./modules`. Leave it running while you use the extension.
    `chrome.storage.local`), so you only need to set it once.
 6. Everything is checked by default. Uncheck anything you don't want, or
    use **Select All / None**.
-7. Click **Send Selected to Local Server**. Files are POSTed straight to
-   your running FastAPI server (`http://localhost:<port>/upload`), which
-   saves them into `./modules`, named like:
-   `M1-PRESENTATION - EDITH-2503-0419-5402-2A12.pdf`
+7. Click **Process Selected**. All checked PDFs are POSTed in one request
+   to your FastAPI server's `/process` endpoint
+   (`http://localhost:<port>/process`), which runs OCR/formatting on each
+   and returns the resulting `.txt` files (viewable via the server's own
+   `/download/{filename}` route, or `/outputs` for the full list).
 
 The panel re-scans automatically if you expand more modules while it's open,
 so the list stays current. Close it with the × in the corner any time.
 
-From there, point your `module_to_txt.py` watcher at the `./modules` folder
-(same one the FastAPI server writes into) and the extraction pipeline picks
-the files up as usual -- no manual moving required anymore.
+From there, the server's `slides_pdf_to_txt` pipeline writes each result
+into its own `output/` folder as `.txt` -- no separate watcher script or
+manual file-moving needed, since the extension feeds PDFs straight into
+`/process` instead of dropping them on disk first.
 
 ## Notes
 - This only works on `paraverse.feutech.edu.ph` course pages (scoped in

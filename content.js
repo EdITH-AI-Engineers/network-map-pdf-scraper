@@ -80,7 +80,7 @@ function ensurePanel() {
     <div id="paraverse-pdf-list" style="overflow-y:auto;flex:1;padding:6px 10px;"></div>
     <div style="padding:10px;border-top:1px solid #eee;">
       <button id="paraverse-download-btn" style="width:100%;padding:10px;background:#1a73e8;color:#fff;border:none;border-radius:6px;font-weight:600;cursor:pointer;">
-        Send Selected to Local Server
+        Process Selected
       </button>
       <div id="paraverse-pdf-status" style="margin-top:8px;color:#333;"></div>
     </div>
@@ -178,14 +178,19 @@ function onDownloadClick() {
     filename: makeFilename(entry, i),
   }));
 
-  statusEl.textContent = `Sending ${downloads.length} file(s) to local server...`;
+  statusEl.textContent = `Sending ${downloads.length} file(s) for processing...`;
 
   chrome.runtime.sendMessage({ type: "downloadPdfs", downloads }, (response) => {
     if (chrome.runtime.lastError) {
       statusEl.textContent = `Error: ${chrome.runtime.lastError.message}`;
       return;
     }
-    statusEl.textContent = `Done: ${response.succeeded} sent, ${response.failed} failed (${response.uploadEndpoint}).`;
+    let msg = `Done: ${response.succeeded} processed, ${response.failed} failed (${response.processUrl}).`;
+    if (response.errors && response.errors.length > 0) {
+      const firstError = response.errors[0];
+      msg += ` First error -- ${firstError.pdf}: ${firstError.error}`;
+    }
+    statusEl.textContent = msg;
   });
 }
 
