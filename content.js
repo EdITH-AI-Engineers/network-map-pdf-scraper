@@ -1,7 +1,7 @@
 // content.js
 // Runs on Paraverse course pages. Watches for the module list to render
 // (it loads via AJAX after the page loads), scans it for presentation
-// PDFs, and shows a panel listing everything found so you can see what's
+// files, and shows a panel listing everything found so you can see what's
 // available before downloading anything.
 
 let currentEntries = [];
@@ -24,9 +24,9 @@ function findPdfEntries() {
 
     contentDiv.querySelectorAll("button[endpoint-url]").forEach((btn) => {
       const endpoint = btn.getAttribute("endpoint-url") || "";
-      if (endpoint.toLowerCase().endsWith(".pdf") && !seen.has(endpoint)) {
+      if (/\.(pdf|pptx?)$/i.test(endpoint) && !seen.has(endpoint)) {
         seen.add(endpoint);
-        entries.push({ path: endpoint, label });
+        entries.push({ path: endpoint, label, extension: endpoint.split(".").pop().toLowerCase() });
       }
     });
   });
@@ -34,12 +34,21 @@ function findPdfEntries() {
   return entries;
 }
 
-function makeFilename(entry, index) {
-  const rawName = entry.path.split("/").pop();
-  const cleanLabel = entry.label
-    ? entry.label.replace(/[\[\]]/g, "").trim()
-    : `Document_${index + 1}`;
-  return `paraverse-modules/${cleanLabel} - ${rawName}`;
+function getModuleNumber(label, fallbackIndex) {
+  if (label) {
+    const match = label.match(/\bM\s*(\d+)\b/i) || label.match(/\bModule\s*(\d+)\b/i);
+    if (match) {
+      return `M${match[1]}`;
+    }
+  }
+
+  return `M${fallbackIndex + 1}`;
+}
+
+function makeFilename(entry, index, courseCode) {
+  const moduleNumber = getModuleNumber(entry.label, index);
+  const extension = entry.extension ? `.${entry.extension}` : "";
+  return `${courseCode}-${moduleNumber}${extension}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -72,7 +81,7 @@ function ensurePanel() {
 
   panel.innerHTML = `
     <div style="background:#1a73e8;color:#fff;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;">
-      <strong>Module PDFs Found</strong>
+      <strong>Module Files Found</strong>
       <span id="paraverse-pdf-close" style="cursor:pointer;font-size:16px;line-height:1;">&times;</span>
     </div>
     <div id="paraverse-pdf-toolbar" style="display:flex;gap:6px;padding:8px 10px;border-bottom:1px solid #eee;">
@@ -124,7 +133,7 @@ function renderList(entries) {
   const statusEl = panel.querySelector("#paraverse-pdf-status");
 
   if (entries.length === 0) {
-    listEl.innerHTML = `<div style="color:#888;padding:8px 0;">No PDFs detected yet -- try expanding all modules.</div>`;
+    listEl.innerHTML = `<div style="color:#888;padding:8px 0;">No presentation files detected yet -- try expanding all modules.</div>`;
     statusEl.textContent = "";
     return;
   }
@@ -133,24 +142,27 @@ function renderList(entries) {
     .map((entry, i) => {
       const filename = entry.path.split("/").pop();
       const title = entry.label ? entry.label.replace(/[\[\]]/g, "") : filename;
-      const viewUrl = new URL(
-        `/assets/library/pdfjs/web/viewer.html?file=${entry.path}`,
-        window.location.origin
-      ).href;
+      const canPreview = entry.extension === "pdf";
+      const viewUrl = canPreview
+        ? new URL(
+          `/assets/library/pdfjs/web/viewer.html?file=${entry.path}`,
+          window.location.origin
+        ).href
+        : null;
       return `
         <label style="display:flex;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid #f0f0f0;cursor:pointer;">
           <input type="checkbox" class="paraverse-pdf-checkbox" data-index="${i}" checked style="margin-top:3px;">
           <span style="flex:1;">
             <div style="font-weight:600;color:#222;">${title}</div>
             <div style="color:#888;font-size:11px;">${filename}</div>
-            <a href="${viewUrl}" target="_blank" style="font-size:11px;color:#1a73e8;">Preview</a>
+            ${viewUrl ? `<a href="${viewUrl}" target="_blank" style="font-size:11px;color:#1a73e8;">Preview</a>` : `<div style="font-size:11px;color:#888;">No preview available for this file type.</div>`}
           </span>
         </label>
       `;
     })
     .join("");
 
-  statusEl.textContent = `${entries.length} PDF(s) found. Uncheck any you don't want, then download.`;
+  statusEl.textContent = `${entries.length} file(s) found. Uncheck any you don't want, then download.`;
 }
 
 function onSavePortClick() {
@@ -190,7 +202,7 @@ function onDownloadClick() {
 
   const downloads = checked.map((entry, i) => ({
     url: new URL(entry.path, window.location.origin).href,
-    filename: makeFilename(entry, i),
+    filename: makeFilename(entry, i, courseCode),
   }));
 
   statusEl.textContent = `Sending ${downloads.length} file(s) for processing (course ${courseCode})...`;
@@ -198,16 +210,16 @@ function onDownloadClick() {
   chrome.runtime.sendMessage(
     { type: "downloadPdfs", downloads, courseCode },
     (response) => {
-    if (chrome.runtime.lastError) {
-      statusEl.textContent = `Error: ${chrome.runtime.lastError.message}`;
-      return;
-    }
-    let msg = `Done: ${response.succeeded} processed, ${response.failed} failed (${response.processUrl}).`;
-    if (response.errors && response.errors.length > 0) {
-      const firstError = response.errors[0];
-      msg += ` First error -- ${firstError.pdf}: ${firstError.error}`;
-    }
-    statusEl.textContent = msg;
+      if (chrome.runtime.lastError) {
+        statusEl.textContent = `Error: ${chrome.runtime.lastError.message}`;
+        return;
+      }
+      let msg = `Done: ${response.succeeded} processed, ${response.failed} failed (${response.processUrl}).`;
+      if (response.errors && response.errors.length > 0) {
+        const firstError = response.errors[0];
+        msg += ` First error -- ${firstError.pdf}: ${firstError.error}`;
+      }
+      statusEl.textContent = msg;
     }
   );
 }
